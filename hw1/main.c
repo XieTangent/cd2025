@@ -1,157 +1,133 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
-#define BUF_SIZE 128
+#define MAX_TOKEN_LENGTH 100
 
-typedef enum {
-    TOKEN_TYPE,
-    TOKEN_MAIN,
-    TOKEN_IDENTIFIER,
-    TOKEN_NUMBER,
-    TOKEN_ASSIGN,
-    TOKEN_EQUAL,
-    TOKEN_LPAREN,
-    TOKEN_RPAREN,
-    TOKEN_LBRACE,
-    TOKEN_RBRACE,
-    TOKEN_IF,
-    TOKEN_ELSE,
-    TOKEN_WHILE,
-    TOKEN_PLUS,
-    TOKEN_MINUS,
-    TOKEN_SEMICOLON,
-    TOKEN_UNKNOWN,
-    TOKEN_COMMENT
-} TokenType;
+typedef struct TokenNode {
+    char tokenStr[MAX_TOKEN_LENGTH];
+    int count;
+    struct TokenNode* next;
+} TokenNode;
 
-const char* token_type_str(TokenType t) {
-    switch (t) {
-        case TOKEN_TYPE: return "TYPE";
-        case TOKEN_MAIN: return "MAIN";
-        case TOKEN_IDENTIFIER: return "IDENTIFIER";
-        case TOKEN_NUMBER: return "NUMBER";
-        case TOKEN_ASSIGN: return "ASSIGN";
-        case TOKEN_EQUAL: return "EQUAL";
-        case TOKEN_LPAREN: return "LPAREN";
-        case TOKEN_RPAREN: return "RPAREN";
-        case TOKEN_LBRACE: return "LBRACE";
-        case TOKEN_RBRACE: return "RBRACE";
-        case TOKEN_IF: return "IF";
-        case TOKEN_ELSE: return "ELSE";
-        case TOKEN_WHILE: return "WHILE";
-        case TOKEN_PLUS: return "PLUS";
-        case TOKEN_MINUS: return "MINUS";
-        case TOKEN_SEMICOLON: return "SEMICOLON";
-        case TOKEN_COMMENT: return "COMMENT";
-        default: return "UNKNOWN";
+TokenNode* find_token(TokenNode* head, const char* tokenStr) {
+    while (head) {
+        if (strcmp(head->tokenStr, tokenStr) == 0) {
+            return head;
+        }
+        head = head->next;
+    }
+    return NULL;
+}
+
+void add_token(TokenNode** head, const char* tokenStr) {
+    TokenNode* node = find_token(*head, tokenStr);
+    if (node) {
+        node->count++;
+    } else {
+        TokenNode* newNode = (TokenNode*)malloc(sizeof(TokenNode));
+        strncpy(newNode->tokenStr, tokenStr, MAX_TOKEN_LENGTH);
+        newNode->count = 1;
+        newNode->next = *head;
+        *head = newNode;
     }
 }
 
-int is_letter(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+int is_keyword(const char* str) {
+    const char* keywords[] = {"int", "main", "if", "else", "while", NULL};
+    for (int i = 0; keywords[i] != NULL; i++) {
+        if (strcmp(str, keywords[i]) == 0) return 1;
+    }
+    return 0;
 }
 
-int is_num(char c) {
-    return c >= '0' && c <= '9';
-}
-
-int is_valid_char(char c) {
-    return is_letter(c) || is_num(c) || c == '_';
-}
-
-int is_blank(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
-TokenType check_reserved(const char* word) {
-    if (strcmp(word, "int") == 0) return TOKEN_TYPE;
-    if (strcmp(word, "main") == 0) return TOKEN_MAIN;
-    if (strcmp(word, "if") == 0) return TOKEN_IF;
-    if (strcmp(word, "else") == 0) return TOKEN_ELSE;
-    if (strcmp(word, "while") == 0) return TOKEN_WHILE;
-    return TOKEN_IDENTIFIER;
-}
-
-void process_file(const char* path) {
-    FILE* file = fopen(path, "r");
-    if (!file) {
-        perror("File error");
+void scan(const char* filename, TokenNode** tokenList) {
+    FILE* fp = fopen(filename, "r");
+    if (!fp) {
+        fprintf(stderr, "Cannot open %s\n", filename);
         return;
     }
 
     int ch;
-    while ((ch = fgetc(file)) != EOF) {
-        if (is_blank(ch)) continue;
+    while ((ch = fgetc(fp)) != EOF) {
+        if (isspace(ch)) continue;
 
-        // skip line comment
-        if (ch == '/') {
-            int next = fgetc(file);
-            if (next == '/') {
-                while ((ch = fgetc(file)) != EOF && ch != '\n');
-                continue;
+        if (isalpha(ch) || ch == '_') {
+            char buffer[MAX_TOKEN_LENGTH] = {0};
+            int i = 0;
+            buffer[i++] = ch;
+            while ((ch = fgetc(fp)) != EOF && (isalnum(ch) || ch == '_')) {
+                if (i < MAX_TOKEN_LENGTH - 1) buffer[i++] = ch;
+            }
+            if (ch != EOF) ungetc(ch, fp);
+            buffer[i] = '\0';
+
+            if (is_keyword(buffer)) {
+                char kwToken[120];
+                snprintf(kwToken, sizeof(kwToken), "KEYWORD(%s)", buffer);
+                add_token(tokenList, kwToken);
             } else {
-                ungetc(next, file);
+                char idToken[120];
+                snprintf(idToken, sizeof(idToken), "IDENTIFIER(%s)", buffer);
+                add_token(tokenList, idToken);
             }
-        }
+        } else if (isdigit(ch)) {
+            char buffer[MAX_TOKEN_LENGTH] = {0};
+            int i = 0;
+            buffer[i++] = ch;
+            while ((ch = fgetc(fp)) != EOF && isdigit(ch)) {
+                if (i < MAX_TOKEN_LENGTH - 1) buffer[i++] = ch;
+            }
+            if (ch != EOF) ungetc(ch, fp);
+            buffer[i] = '\0';
 
-        if (is_letter(ch) || ch == '_') {
-            char word[BUF_SIZE] = {0};
-            int idx = 0;
-            word[idx++] = ch;
-            while ((ch = fgetc(file)) != EOF && is_valid_char(ch)) {
-                if (idx < BUF_SIZE - 1)
-                    word[idx++] = ch;
+            char litToken[120];
+            snprintf(litToken, sizeof(litToken), "LITERAL(%s)", buffer);
+            add_token(tokenList, litToken);
+        } else {
+            char symToken[3] = {ch, 0, 0};
+            if (ch == '=') {
+                int next = fgetc(fp);
+                if (next == '=') {
+                    strcpy(symToken, "==");
+                } else {
+                    if (next != EOF) ungetc(next, fp);
+                }
             }
-            word[idx] = '\0';
-            if (ch != EOF) ungetc(ch, file);
-            TokenType t = check_reserved(word);
-            printf("[%-15s] -> %s\n", token_type_str(t), word);
-        } 
-        else if (is_num(ch)) {
-            char num[BUF_SIZE] = {0};
-            int idx = 0;
-            num[idx++] = ch;
-            while ((ch = fgetc(file)) != EOF && is_num(ch)) {
-                if (idx < BUF_SIZE - 1)
-                    num[idx++] = ch;
-            }
-            num[idx] = '\0';
-            if (ch != EOF) ungetc(ch, file);
-            printf("[%-15s] -> %s\n", token_type_str(TOKEN_NUMBER), num);
-        } 
-        else {
-            TokenType t;
-            char sym[3] = {ch, '\0', '\0'};
-            switch (ch) {
-                case '=':
-                    ch = fgetc(file);
-                    if (ch == '=') {
-                        sym[1] = '=';
-                        t = TOKEN_EQUAL;
-                    } else {
-                        if (ch != EOF) ungetc(ch, file);
-                        t = TOKEN_ASSIGN;
-                    }
-                    break;
-                case '+': t = TOKEN_PLUS; break;
-                case '-': t = TOKEN_MINUS; break;
-                case '(': t = TOKEN_LPAREN; break;
-                case ')': t = TOKEN_RPAREN; break;
-                case '{': t = TOKEN_LBRACE; break;
-                case '}': t = TOKEN_RBRACE; break;
-                case ';': t = TOKEN_SEMICOLON; break;
-                default: t = TOKEN_UNKNOWN;
-            }
-            printf("[%-15s] -> %s\n", token_type_str(t), sym);
+            char finalToken[120];
+            snprintf(finalToken, sizeof(finalToken), "SYMBOL(%s)", symToken);
+            add_token(tokenList, finalToken);
         }
     }
 
-    fclose(file);
+    fclose(fp);
+}
+
+void print_tokens(TokenNode* head) {
+    TokenNode* curr = head;
+    while (curr) {
+        printf("%s : %d\n", curr->tokenStr, curr->count);
+        curr = curr->next;
+    }
+}
+
+void free_tokens(TokenNode* head) {
+    while (head) {
+        TokenNode* temp = head;
+        head = head->next;
+        free(temp);
+    }
 }
 
 int main() {
-    const char* target = "hw1/main.c";
-    process_file(target);
+    TokenNode* tokenList = NULL;
+
+    const char* filename = "hw1/main.c";
+    scan(filename, &tokenList);
+
+    print_tokens(tokenList);
+
+    free_tokens(tokenList);
     return 0;
 }
