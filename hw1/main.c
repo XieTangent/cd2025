@@ -123,7 +123,7 @@ void free_tokens(TokenNode* head) {
 int main() {
     TokenNode* tokenList = NULL;
 
-    const char* filename = "hw1/main.c";
+    const char* filename = "hw1/test.c";
     scan(filename, &tokenList);
 
     print_tokens(tokenList);
